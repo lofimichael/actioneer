@@ -1,0 +1,80 @@
+name: Conway's Game of Life
+
+on:
+  workflow_dispatch:
+    inputs:
+      generations:
+        description: 'Number of generations to evolve'
+        required: false
+        default: '1'
+        type: number
+  schedule:
+    # Run every hour to evolve the game
+    - cron: '0 * * * *'
+
+jobs:
+  evolve:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Display current generation
+        run: |
+          echo "=== Current Game State ==="
+          if [ -f game_state.txt ]; then
+            cat game_state.txt
+          else
+            echo "No game state found. Initializing..."
+          fi
+          echo "=========================="
+
+      - name: Evolve generation(s)
+        run: |
+          GENS="${{ github.event.inputs.generations || '1' }}"
+          echo "Evolving $GENS generation(s)..."
+
+          for i in $(seq 1 $GENS); do
+            echo "Evolution step $i of $GENS"
+            python conway.py
+          done
+
+      - name: Display new generation
+        run: |
+          echo "=== New Game State ==="
+          cat game_state.txt
+          echo "======================"
+
+      - name: Commit and push changes
+        run: |
+          git config --global user.name 'Conway Bot'
+          git config --global user.email 'conway-bot@users.noreply.github.com'
+          git add game_state.txt
+
+          if git diff --staged --quiet; then
+            echo "No changes to commit - game may have stabilized"
+            exit 0
+          fi
+
+          # Count generations
+          GENERATION=$(git rev-list --count HEAD 2>/dev/null || echo "0")
+          GENS="${{ github.event.inputs.generations || '1' }}"
+
+          if [ "$GENS" = "1" ]; then
+            git commit -m "[Conway Bot] Generation $((GENERATION + 1)) 🧬"
+          else
+            git commit -m "[Conway Bot] Evolved $GENS generations (now at gen $((GENERATION + 1))) 🧬"
+          fi
+
+          git push -u origin ${{ github.ref_name }}
